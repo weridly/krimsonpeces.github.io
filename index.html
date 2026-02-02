@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IX LO Gdańsk: Krimson Pescador</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        body {
+            background-color: #2c3e50;
+            color: white;
+            font-family: 'Press Start 2P', cursive;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            border: 4px solid #fff;
+        }
+
+        canvas {
+            background-color: #7f8c8d; /* Podłoga korytarza */
+            display: block;
+            image-rendering: pixelated; 
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify_content: space-between;
+        }
+
+        .hud {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            font-size: 12px;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        #dialogue-box {
+            position: absolute;
+            bottom: 20px;
+            left: 5%;
+            width: 90%;
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid white;
+            padding: 10px;
+            display: none;
+            pointer-events: auto;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+
+        .dialogue-title {
+            color: #f1c40f;
+            margin-bottom: 10px;
+            font-size: 10px;
+            text-transform: uppercase;
+        }
+
+        .option {
+            background: #34495e;
+            margin: 5px 0;
+            padding: 8px;
+            cursor: pointer;
+            font-size: 10px;
+            border: 1px solid #7f8c8d;
+            transition: 0.1s;
+        }
+
+        .option:hover {
+            background: #e74c3c;
+            color: white;
+            border-color: #fff;
+        }
+
+        #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            display: none;
+            text-align: center;
+        }
+
+        button {
+            background: #e74c3c;
+            color: white;
+            border: 2px solid white;
+            padding: 15px;
+            font-family: 'Press Start 2P', cursive;
+            cursor: pointer;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #c0392b;
+        }
+
+        .pixel-alert {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 20px;
+            color: #2ecc71;
+            text-shadow: 2px 2px 0 #000;
+            pointer-events: none;
+            animation: floatUp 1s ease-out forwards;
+            display: none;
+        }
+
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translate(-50%, -50%); }
+            100% { opacity: 0; transform: translate(-50%, -150%); }
+        }
+
+        .keys-hint {
+            margin-top: 10px;
+            font-size: 10px;
+            color: #bdc3c7;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="640" height="480"></canvas>
+        
+        <div id="ui-layer">
+            <div class="hud">
+                <div id="score-display">RIZZ: 0</div>
+                <div id="high-score-display">TOP RIZZ: 0</div>
+                <div id="timer-display">CZAS: 120</div>
+            </div>
+            <div id="pixel-alert" class="pixel-alert">+1 RIZZ!</div>
+        </div>
+
+        <div id="dialogue-box">
+            <div class="dialogue-title" id="npc-name">Wybranka z 2C</div>
+            <div id="options-container"></div>
+        </div>
+
+        <div id="game-over-screen">
+            <h1 style="color: #e74c3c; text-shadow: 3px 3px 0 #000;">KONIEC LEKCJI</h1>
+            <p id="final-score">Twój Rizz: 0</p>
+            <p id="new-record" style="color: #f1c40f; display:none;">NOWY REKORD!</p>
+            <button onclick="startGame()">RESETUJ ROK SZKOLNY</button>
+        </div>
+    </div>
+
+    <div class="keys-hint">WASD / Strzałki - Ruch | E / Spacja - Bajerka</div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const uiScore = document.getElementById('score-display');
+        const uiTimer = document.getElementById('timer-display');
+        const uiHighScore = document.getElementById('high-score-display');
+        const dialogueBox = document.getElementById('dialogue-box');
+        const optionsContainer = document.getElementById('options-container');
+        const npcNameElement = document.getElementById('npc-name');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const finalScoreElement = document.getElementById('final-score');
+        const newRecordElement = document.getElementById('new-record');
+        const pixelAlert = document.getElementById('pixel-alert');
+
+        // Game Config
+        const TILE_SIZE = 32;
+        const PLAYER_SPEED = 4;
+        const GAME_DURATION = 120; // seconds
+        
+        // Colors
+        const COLORS = {
+            floor: '#7f8c8d',
+            wall: '#2c3e50',
+            lockers: '#34495e',
+            player: '#e74c3c', // Krimson Red
+            hair: '#2c3e50',
+            npcSkin: ['#f1c27d', '#e0ac69', '#ffdbac'],
+            npcShirt: ['#3498db', '#9b59b6', '#2ecc71', '#f1c40f', '#e67e22']
+        };
+
+        // State
+        let gameState = 'START'; // START, PLAYING, DIALOGUE, GAMEOVER
+        let score = 0;
+        let timer = GAME_DURATION;
+        let highScore = localStorage.getItem('ixlo_highscore') || 0;
+        let lastTime = 0;
+        let timerInterval;
+        
+        uiHighScore.innerText = `TOP RIZZ: ${highScore}`;
+
+        // Input
+        const keys = {
+            w: false, a: false, s: false, d: false,
+            ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false,
+            e: false, " ": false
+        };
+
+        // Entities
+        let player = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            width: 24,
+            height: 32,
+            color: COLORS.player,
+            direction: 'down',
+            animFrame: 0
+        };
+
+        let npcs = [];
+        let walls = [];
+        let currentInteractingNpc = null;
+
+        // Dialogue Data - The "Mega Dużo" part
+        // Types: 0: Romantic, 1: Intellectual/School, 2: Street/Cool, 3: Abstract/Funny
+        const DIALOGUES = [
+            { text: "Wierzysz w miłość od pierwszego wejrzenia, czy mam przejść jeszcze raz?", type: 0 },
+            { text: "Twoje imię to WiFi? Bo czuję połączenie.", type: 0 },
+            { text: "Gdybyś była kanapką w sklepiku, byłabyś tą najdroższą.", type: 3 },
+            { text: "Masz może pożyczyć notatki z fizyki? Bo czuję przyciąganie.", type: 1 },
+            { text: "Jesteś z mat-fizu? Bo dodajesz sensu mojemu życiu.", type: 1 },
+            { text: "Słuchaj, która godzina? Bo czas stanął jak Cię zobaczyłem.", type: 0 },
+            { text: "Hej mała, lubisz jazz? Bo wyglądasz jak improwizacja.", type: 2 },
+            { text: "Wyglądasz jak 100% z rozszerzonej matmy.", type: 1 },
+            { text: "Jesteś stąd? Bo chyba widziałem Cię w moich snach.", type: 0 },
+            { text: "To IX LO czy Niebo? Bo widzę anioła.", type: 0 },
+            { text: "Masz mapę? Bo zgubiłem się w Twoich oczach.", type: 0 },
+            { text: "Gdyby uroda była czasem, byłabyś wiecznością.", type: 0 },
+            { text: "Lubisz kebaby? Znam dobrą miejscówkę na Głównym.", type: 2 },
+            { text: "Twoja aura jest rzadsza niż Dragon Lore.", type: 2 },
+            { text: "Hej, czy Twój tata jest złodziejem? Bo ukradł gwiazdy i włożył w Twoje oczy.", type: 0 },
+            { text: "Wyglądasz na kogoś, kto ogarnia chemię. Poczujemy jakąś?", type: 1 },
+            { text: "Jesteś jak SKM-ka, zawsze na Ciebie czekam.", type: 3 },
+            { text: "Nie jestem fotografem, ale widzę nas razem na studniówce.", type: 0 },
+            { text: "Czy bolało? Jak spadałaś z nieba do Gdańska?", type: 0 },
+            { text: "Jesteś tematem mojej następnej rozprawki.", type: 1 },
+            { text: "Twój styl to totalny sztos, szanuję drip.", type: 2 },
+            { text: "Hej, wiesz gdzie jest sekretariat? Bo chcę się wypisać... z bycia singlem.", type: 3 },
+            { text: "Gdybyś była lekturą, czytałbym Cię bez streszczenia.", type: 1 },
+            { text: "To co, wagary? Znam fajne molo.", type: 2 },
+            { text: "Jesteś jak 'Pan Tadeusz' - epicka.", type: 1 },
+            { text: "Twoje oczy są bardziej niebieskie niż error w Windowsie.", type: 3 },
+            { text: "Chcesz zobaczyć moje skiny w CS-ie?", type: 2 },
+            { text: "Jesteś powodem, dla którego chodzę do tej szkoły.", type: 0 },
+            { text: "Masz patent żeglarski? Bo wpłynęłaś na moje serce.", type: 3 },
+            { text: "Krimson Pescador melduje się na służbie... w Twoim sercu.", type: 0 }
+        ];
+
+        // Initialization
+        function init() {
+            // Generate Map (Walls)
+            walls = [];
+            // Outer walls
+            walls.push({x: 0, y: 0, w: canvas.width, h: 40}); // Top
+            walls.push({x: 0, y: canvas.height-40, w: canvas.width, h: 40}); // Bottom
+            walls.push({x: 0, y: 0, w: 40, h: canvas.height}); // Left
+            walls.push({x: canvas.width-40, y: 0, w: 40, h: canvas.height}); // Right
+            
+            // Lockers / Pillars inside
+            walls.push({x: 150, y: 150, w: 100, h: 40});
+            walls.push({x: 390, y: 150, w: 100, h: 40});
+            walls.push({x: 150, y: 350, w: 100, h: 40});
+            walls.push({x: 390, y: 350, w: 100, h: 40});
+
+            // Generate NPCs
+            npcs = [];
+            for(let i=0; i<8; i++) {
+                spawnNPC();
+            }
+
+            // Input listeners
+            window.addEventListener('keydown', (e) => {
+                if(keys.hasOwnProperty(e.key) || keys.hasOwnProperty(e.code)) keys[e.key] = true;
+                if(e.key === ' ' || e.key === 'e' || e.key === 'E') tryInteract();
+            });
+
+            window.addEventListener('keyup', (e) => {
+                if(keys.hasOwnProperty(e.key) || keys.hasOwnProperty(e.code)) keys[e.key] = false;
+            });
+        }
+
+        function spawnNPC() {
+            let safe = false;
+            let npc;
+            while(!safe) {
+                npc = {
+                    x: 60 + Math.random() * (canvas.width - 120),
+                    y: 60 + Math.random() * (canvas.height - 120),
+                    width: 24,
+                    height: 32,
+                    color: COLORS.npcShirt[Math.floor(Math.random() * COLORS.npcShirt.length)],
+                    skin: COLORS.npcSkin[Math.floor(Math.random() * COLORS.npcSkin.length)],
+                    dirX: Math.random() > 0.5 ? 1 : -1,
+                    dirY: Math.random() > 0.5 ? 1 : -1,
+                    moveTimer: 0,
+                    isRizzed: false,
+                    cooldown: 0,
+                    // RNG Preference: What type of line works on her
+                    // Intentionally simple logic: Random preference assigned at spawn
+                    preference: Math.floor(Math.random() * 4) 
+                };
+                
+                // Check collision with walls
+                let collides = false;
+                for(let w of walls) {
+                    if (rectIntersect(npc.x, npc.y, npc.width, npc.height, w.x, w.y, w.w, w.h)) collides = true;
+                }
+                if (!collides) safe = true;
+            }
+            npcs.push(npc);
+        }
+
+        // Logic
+        function startGame() {
+            score = 0;
+            timer = GAME_DURATION;
+            gameState = 'PLAYING';
+            gameOverScreen.style.display = 'none';
+            player.x = canvas.width / 2;
+            player.y = canvas.height / 2;
+            
+            // Reset NPCs
+            npcs = [];
+            for(let i=0; i<10; i++) spawnNPC();
+
+            uiScore.innerText = "RIZZ: 0";
+            
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if(gameState === 'PLAYING') {
+                    timer--;
+                    uiTimer.innerText = `CZAS: ${timer}`;
+                    if(timer <= 0) endGame();
+                }
+            }, 1000);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function endGame() {
+            gameState = 'GAMEOVER';
+            clearInterval(timerInterval);
+            dialogueBox.style.display = 'none';
+            gameOverScreen.style.display = 'flex';
+            finalScoreElement.innerText = `Twój Rizz: ${score}`;
+            
+            if(score > highScore) {
+                highScore = score;
+                localStorage.setItem('ixlo_highscore', highScore);
+                uiHighScore.innerText = `TOP RIZZ: ${highScore}`;
+                newRecordElement.style.display = 'block';
+            } else {
+                newRecordElement.style.display = 'none';
+            }
+        }
+
+        function update() {
+            if (gameState !== 'PLAYING') return;
+
+            // Player Movement
+            let dx = 0;
+            let dy = 0;
+            if (keys.w || keys.ArrowUp) dy = -PLAYER_SPEED;
+            if (keys.s || keys.ArrowDown) dy = PLAYER_SPEED;
+            if (keys.a || keys.ArrowLeft) dx = -PLAYER_SPEED;
+            if (keys.d || keys.ArrowRight) dx = PLAYER_SPEED;
+
+            // Normalize diagonal
+            if (dx !== 0 && dy !== 0) {
+                dx *= 0.707;
+                dy *= 0.707;
+            }
+
+            // Move X
+            player.x += dx;
+            if (checkWallCollision(player)) player.x -= dx;
+            
+            // Move Y
+            player.y += dy;
+            if (checkWallCollision(player)) player.y -= dy;
+
+            // Bounds
+            player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
+            player.y = Math.max(0, Math.min(canvas.height - player.height, player.y));
+
+            // NPC Logic (Wander around)
+            npcs.forEach(npc => {
+                if (npc.isRizzed) return; // Rizzed NPCs stand still looking impressed
+
+                npc.moveTimer--;
+                if(npc.moveTimer <= 0) {
+                    npc.moveTimer = 30 + Math.random() * 60;
+                    npc.dirX = (Math.random() - 0.5) * 2;
+                    npc.dirY = (Math.random() - 0.5) * 2;
+                }
+
+                let ndx = npc.dirX * 0.5;
+                let ndy = npc.dirY * 0.5;
+
+                npc.x += ndx;
+                if (checkWallCollision(npc)) npc.x -= ndx;
+                npc.y += ndy;
+                if (checkWallCollision(npc)) npc.y -= ndy;
+
+                // Keep inside
+                npc.x = Math.max(40, Math.min(canvas.width - 64, npc.x));
+                npc.y = Math.max(40, Math.min(canvas.height - 72, npc.y));
+            });
+        }
+
+        function checkWallCollision(rect) {
+            for(let w of walls) {
+                if(rectIntersect(rect.x, rect.y, rect.width, rect.height, w.x, w.y, w.w, w.h)) return true;
+            }
+            return false;
+        }
+
+        function rectIntersect(x1, y1, w1, h1, x2, y2, w2, h2) {
+            return x2 < x1 + w1 && x2 + w2 > x1 && y2 < y1 + h1 && y2 + h2 > y1;
+        }
+
+        function getDistance(r1, r2) {
+            let dx = (r1.x + r1.width/2) - (r2.x + r2.width/2);
+            let dy = (r1.y + r1.height/2) - (r2.y + r2.height/2);
+            return Math.sqrt(dx*dx + dy*dy);
+        }
+
+        function tryInteract() {
+            if (gameState !== 'PLAYING') return;
+
+            let closest = null;
+            let minDist = 50; // Interaction range
+
+            npcs.forEach(npc => {
+                if (npc.isRizzed) return;
+                let dist = getDistance(player, npc);
+                if (dist < minDist) {
+                    minDist = dist;
+                    closest = npc;
+                }
+            });
+
+            if (closest) {
+                startDialogue(closest);
+            }
+        }
+
+        function startDialogue(npc) {
+            gameState = 'DIALOGUE';
+            currentInteractingNpc = npc;
+            
+            // Randomly select 3 unique dialogue options
+            let options = [];
+            let indices = [];
+            while(indices.length < 3) {
+                let r = Math.floor(Math.random() * DIALOGUES.length);
+                if(indices.indexOf(r) === -1) indices.push(r);
+            }
+
+            options = indices.map(i => DIALOGUES[i]);
+
+            // Setup UI
+            npcNameElement.innerText = "Koleżanka z IX LO";
+            optionsContainer.innerHTML = '';
+            
+            options.forEach((opt, index) => {
+                let btn = document.createElement('div');
+                btn.className = 'option';
+                btn.innerText = `"${opt.text}"`;
+                btn.onclick = () => selectOption(opt);
+                optionsContainer.appendChild(btn);
+            });
+
+            dialogueBox.style.display = 'block';
+            
+            // Ensure we release movement keys so player doesn't keep walking
+            keys.w = keys.a = keys.s = keys.d = false;
+        }
+
+        function selectOption(option) {
+            // Check if option matches preference OR is a lucky chance
+            // Simplified Logic: 
+            // 1. Direct match with preference = WIN
+            // 2. Random 30% chance even if wrong type (Charisma factor) = WIN
+            
+            let success = false;
+            
+            // Debug logic (hidden in production usually):
+            // console.log("NPC Pref:", currentInteractingNpc.preference, "Option Type:", option.type);
+
+            if (option.type === currentInteractingNpc.preference) {
+                success = true;
+            } else if (Math.random() < 0.3) {
+                // Luck factor
+                success = true;
+            }
+
+            if (success) {
+                score++;
+                uiScore.innerText = `RIZZ: ${score}`;
+                currentInteractingNpc.isRizzed = true;
+                currentInteractingNpc.color = '#e91e63'; // Change color to show love
+                showPixelAlert("RIZZ UDANY!");
+            } else {
+                showPixelAlert("KOSZ!", '#c0392b');
+                // Penalty? No penalty, just lost time.
+            }
+
+            // Close dialogue
+            dialogueBox.style.display = 'none';
+            gameState = 'PLAYING';
+            currentInteractingNpc = null;
+
+            // Spawn new NPC to keep population up
+            if(success) setTimeout(spawnNPC, 2000); 
+        }
+
+        function showPixelAlert(text, color='#2ecc71') {
+            pixelAlert.innerText = text;
+            pixelAlert.style.color = color;
+            pixelAlert.style.display = 'block';
+            // Reset animation
+            pixelAlert.style.animation = 'none';
+            pixelAlert.offsetHeight; /* trigger reflow */
+            pixelAlert.style.animation = null; 
+            
+            setTimeout(() => {
+                pixelAlert.style.display = 'none';
+            }, 1000);
+        }
+
+        // Rendering
+        function draw() {
+            // Clear
+            ctx.fillStyle = COLORS.floor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Walls/Lockers
+            ctx.fillStyle = COLORS.lockers;
+            walls.forEach(w => {
+                ctx.fillRect(w.x, w.y, w.w, w.h);
+                // Detail lines
+                ctx.fillStyle = '#2c3e50';
+                ctx.fillRect(w.x, w.y + 5, w.w, 2);
+                ctx.fillStyle = COLORS.lockers;
+            });
+
+            // Draw NPCs
+            npcs.forEach(npc => {
+                drawCharacter(npc.x, npc.y, npc.color, npc.skin, npc.isRizzed);
+            });
+
+            // Draw Player
+            drawCharacter(player.x, player.y, player.color, '#f1c27d', false, true);
+
+            // Scanlines effect (optional, keep it clean for now)
+        }
+
+        function drawCharacter(x, y, shirtColor, skinColor, isRizzed, isPlayer = false) {
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fillRect(x + 4, y + 28, 16, 6);
+
+            // Body
+            ctx.fillStyle = shirtColor;
+            ctx.fillRect(x, y + 10, 24, 18);
+
+            // Head
+            ctx.fillStyle = skinColor;
+            ctx.fillRect(x + 4, y - 2, 16, 14);
+
+            // Hair (Generic Pixel Hair)
+            ctx.fillStyle = isPlayer ? '#2c3e50' : '#8e44ad';
+            if (!isPlayer) ctx.fillStyle = isRizzed ? '#e91e63' : '#555';
+            ctx.fillRect(x + 2, y - 6, 20, 8);
+
+            // Eyes (Sunglasses for Krimson)
+            if (isPlayer) {
+                ctx.fillStyle = '#000';
+                ctx.fillRect(x + 6, y + 2, 12, 4);
+            }
+
+            // Heart icon if Rizzed
+            if (isRizzed) {
+                ctx.fillStyle = 'red';
+                ctx.font = '10px Arial';
+                ctx.fillText('❤', x + 8, y - 10);
+            }
+
+            // Indicator arrow if Player
+            if (isPlayer) {
+                ctx.fillStyle = '#f1c40f';
+                ctx.beginPath();
+                ctx.moveTo(x + 12, y - 15);
+                ctx.lineTo(x + 6, y - 25);
+                ctx.lineTo(x + 18, y - 25);
+                ctx.fill();
+            }
+        }
+
+        function gameLoop(timestamp) {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start
+        init();
+        startGame();
+
+    </script>
+</body>
+</html>
